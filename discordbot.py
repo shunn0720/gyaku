@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-逆おみくじBot（/gyaku コマンド, ボタン配色・並びカスタム, embed極シンプル, GPT/MCP/DB連携）
+逆おみくじBot（/gyaku コマンド, 4行ボタン横並び, ボタン配色・MCP・GPT・DB対応）
 """
 
 import os
@@ -20,12 +20,16 @@ ADMIN_IDS = {802807293070278676, 822460191118721034}
 JST = timezone(timedelta(hours=9))
 openai_client = AsyncOpenAI(api_key=OPENAI_KEY)
 
-# ────────── ボタン並び・色 ──────────
-BUTTON_LAYOUT = [
-    [("大吉", discord.ButtonStyle.danger), ("吉", discord.ButtonStyle.danger)],
-    [("中吉", discord.ButtonStyle.success), ("小吉", discord.ButtonStyle.success), ("末吉", discord.ButtonStyle.success)],
-    [("凶", discord.ButtonStyle.secondary), ("大凶", discord.ButtonStyle.secondary)],
-    [("鯖の女神降臨", discord.ButtonStyle.primary), ("救いようがない日", discord.ButtonStyle.primary)],
+BUTTONS = [
+    ("大吉", discord.ButtonStyle.danger, 0),
+    ("吉", discord.ButtonStyle.danger, 0),
+    ("中吉", discord.ButtonStyle.success, 1),
+    ("小吉", discord.ButtonStyle.success, 1),
+    ("末吉", discord.ButtonStyle.success, 1),
+    ("凶", discord.ButtonStyle.secondary, 2),
+    ("大凶", discord.ButtonStyle.secondary, 2),
+    ("鯖の女神降臨", discord.ButtonStyle.primary, 3),
+    ("救いようがない日", discord.ButtonStyle.primary, 3),
 ]
 
 db_pool: asyncpg.Pool = None
@@ -87,22 +91,22 @@ async def delete_old_panel(channel: discord.TextChannel):
             pass
     gyaku_panel_msg_id = None
 
-# ────────── カラー/並びに沿ったView ──────────
+# ────────── 4行横並びView ──────────
 class GyakuOmikujiView(discord.ui.View):
     def __init__(self, today_omikuji: dict, invoker_id: int):
         super().__init__(timeout=None)
         self.today_omikuji = today_omikuji
         self.invoker_id = invoker_id
-        for row in BUTTON_LAYOUT:
-            for label, style in row:
-                self.add_item(GyakuOmikujiButton(label, style, today_omikuji, invoker_id))
+        for label, style, row in BUTTONS:
+            self.add_item(GyakuOmikujiButton(label, style, row, today_omikuji, invoker_id))
 
 class GyakuOmikujiButton(discord.ui.Button):
-    def __init__(self, label: str, style: discord.ButtonStyle, today_omikuji: dict, invoker_id: int):
+    def __init__(self, label: str, style: discord.ButtonStyle, row: int, today_omikuji: dict, invoker_id: int):
         super().__init__(
             label=label,
             style=style,
-            custom_id=f"gyaku_{label}"
+            custom_id=f"gyaku_{label}",
+            row=row
         )
         self.label_val = label
         self.today_omikuji = today_omikuji
@@ -151,7 +155,7 @@ class GyakuOmikujiButton(discord.ui.Button):
 
 def make_panel_embed():
     embed = discord.Embed(
-        title="<:506:1314101561441517618> 逆おみくじ",
+        title="<:506:1314101561441517618> 逆おみくじパネル",
         description="本家おみくじBotで運勢を引いてから押してね！",
         color=discord.Color.purple()
     )
