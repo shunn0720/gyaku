@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-逆おみくじBot（/gyaku コマンド, 4行ボタン横並び, ボタン配色・MCP・GPT・DB対応）
+逆おみくじBot（/gyaku コマンド, 4行ボタン横並び, 1日1回制限, 管理者限定/やり直しコマンド, ボタン配色・MCP・GPT・DB対応、200トークン以内指示）
 """
 
 import os
@@ -55,7 +55,8 @@ def build_gpt_prompt(result: str, user_name: str):
         f"{user_name}さんが今日「{result}」を引いたと報告してきました。\n"
         "まるで最初からそれを知っていたかのように、神秘的かつ胡散臭い関西弁で“予言”してください。\n"
         "煽り・自信満々・おせっかい、どれでもOKです。\n"
-        "必ず関西弁で、語尾や雰囲気もそれっぽく。"
+        "必ず関西弁で、語尾や雰囲気もそれっぽく。\n"
+        "※必ず200トークン以内で返してください。"
     )
 
 async def generate_gpt_text(user_id: int, user_name: str, result: str) -> str:
@@ -67,7 +68,7 @@ async def generate_gpt_text(user_id: int, user_name: str, result: str) -> str:
                 {"role": "system", "content": "あなたは胡散臭い関西弁の占い師です。必ず関西弁で、神秘的に話してください。"},
                 {"role": "user",   "content": build_gpt_prompt(result, user_name)}
             ],
-            max_tokens=120,
+            max_tokens=200,     # ←ここを200に
             temperature=1.0,
         )
         return rsp.choices[0].message.content.strip()
@@ -91,7 +92,6 @@ async def delete_old_panel(channel: discord.TextChannel):
             pass
     gyaku_panel_msg_id = None
 
-# ────────── 4行横並びView ──────────
 class GyakuOmikujiView(discord.ui.View):
     def __init__(self, today_omikuji: dict, invoker_id: int):
         super().__init__(timeout=None)
@@ -115,6 +115,15 @@ class GyakuOmikujiButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         user_id = interaction.user.id
         today = datetime.now(JST).date()
+        # --- 1日1回制限 ---
+        async with db_pool.acquire() as conn:
+            already = await conn.fetchval(
+                "SELECT 1 FROM gyaku_omikuji_history WHERE user_id=$1 AND date=$2",
+                user_id, today
+            )
+        if already:
+            return  # 2回目以降は完全無反応
+
         result = await get_omikuji_result(user_id, today)
         is_admin = user_id in ADMIN_IDS
         if self.label_val in ("鯖の女神降臨", "救いようがない日"):
@@ -145,12 +154,13 @@ class GyakuOmikujiButton(discord.ui.Button):
         embed.set_footer(text=f"by 胡散臭い関西弁の占い師")
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
+        await channel.send(embed=embed)
+
         view = GyakuOmikujiView(self.today_omikuji, self.invoker_id)
         new_msg = await channel.send(embed=make_panel_embed(), view=view)
         global gyaku_panel_msg_id
         gyaku_panel_msg_id = new_msg.id
 
-        await channel.send(embed=embed)
         await save_gyaku_history(user_id, today, self.label_val, gpt_text)
 
 def make_panel_embed():
@@ -182,6 +192,22 @@ async def gyaku_command(interaction: discord.Interaction):
     gyaku_panel_msg_id = msg.id
 
     await interaction.response.send_message("逆おみくじパネルを設置したで！", ephemeral=True)
+
+@tree.command(name="yarinaoshi", description="【管理者専用】指定ユーザーの逆おみくじ押下履歴をリセット")
+@app_commands.describe(user="やり直しさせたいユーザー")
+async def yarinaoshi_command(interaction: discord.Interaction, user: discord.User):
+    if interaction.user.id not in ADMIN_IDS:
+        await interaction.response.send_message("このコマンドは管理者専用です。", ephemeral=True)
+        return
+
+    today = datetime.now(JST).date()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM gyaku_omikuji_history WHERE user_id=$1 AND date=$2",
+            user.id, today
+        )
+
+    await interaction.response.send_message(f"{user.mention} さんの今日の履歴をリセットしました！", ephemeral=True)
 
 @bot.event
 async def on_ready():
