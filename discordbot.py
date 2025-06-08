@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-逆おみくじBot（/gyaku コマンド, MCP＋GPT＋DB履歴＋1パネル維持＋押下権限制御, ボタン絵文字なし版, グローバル同期のみ）
+逆おみくじBot（/gyaku コマンド, ボタン配色・並びカスタム, embed極シンプル, GPT/MCP/DB連携）
 """
 
 import os
@@ -12,7 +12,6 @@ import asyncpg
 from openai import AsyncOpenAI
 from datetime import datetime, timedelta, timezone
 
-# ────────── 環境変数 ──────────
 TOKEN      = os.getenv("DISCORD_BOT_TOKEN")
 DB_URL     = os.getenv("DATABASE_URL")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -21,15 +20,14 @@ ADMIN_IDS = {802807293070278676, 822460191118721034}
 JST = timezone(timedelta(hours=9))
 openai_client = AsyncOpenAI(api_key=OPENAI_KEY)
 
-# ────────── ボタン並び・ラベル ──────────
+# ────────── ボタン並び・色 ──────────
 BUTTON_LAYOUT = [
-    ["大吉", "吉"],
-    ["中吉", "小吉", "末吉"],
-    ["凶", "大凶"],
-    ["鯖の女神降臨", "救いようがない日"]
+    [("大吉", discord.ButtonStyle.danger), ("吉", discord.ButtonStyle.danger)],
+    [("中吉", discord.ButtonStyle.success), ("小吉", discord.ButtonStyle.success), ("末吉", discord.ButtonStyle.success)],
+    [("凶", discord.ButtonStyle.secondary), ("大凶", discord.ButtonStyle.secondary)],
+    [("鯖の女神降臨", discord.ButtonStyle.primary), ("救いようがない日", discord.ButtonStyle.primary)],
 ]
 
-# ────────── DB ──────────
 db_pool: asyncpg.Pool = None
 
 async def get_omikuji_result(user_id: int, date: datetime.date):
@@ -47,7 +45,6 @@ async def save_gyaku_history(user_id: int, date: datetime.date, result: str, gpt
             user_id, date, result, gpt_text
         )
 
-# ────────── 胡散臭い関西弁占い師プロンプト ──────────
 def build_gpt_prompt(result: str, user_name: str):
     return (
         "あなたは胡散臭い関西弁の占い師です。\n"
@@ -74,7 +71,6 @@ async def generate_gpt_text(user_id: int, user_name: str, result: str) -> str:
         print(f"GPT Error: {e}")
         return "…あれ？今日はちょっとだけ未来が見えへんかったわ！"
 
-# ────────── Discord Bot ──────────
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
@@ -91,21 +87,21 @@ async def delete_old_panel(channel: discord.TextChannel):
             pass
     gyaku_panel_msg_id = None
 
-# ────────── ボタンView（絵文字なし） ──────────
+# ────────── カラー/並びに沿ったView ──────────
 class GyakuOmikujiView(discord.ui.View):
     def __init__(self, today_omikuji: dict, invoker_id: int):
         super().__init__(timeout=None)
         self.today_omikuji = today_omikuji
         self.invoker_id = invoker_id
         for row in BUTTON_LAYOUT:
-            for label in row:
-                self.add_item(GyakuOmikujiButton(label, today_omikuji, invoker_id))
+            for label, style in row:
+                self.add_item(GyakuOmikujiButton(label, style, today_omikuji, invoker_id))
 
 class GyakuOmikujiButton(discord.ui.Button):
-    def __init__(self, label: str, today_omikuji: dict, invoker_id: int):
+    def __init__(self, label: str, style: discord.ButtonStyle, today_omikuji: dict, invoker_id: int):
         super().__init__(
             label=label,
-            style=discord.ButtonStyle.secondary,
+            style=style,
             custom_id=f"gyaku_{label}"
         )
         self.label_val = label
@@ -155,22 +151,13 @@ class GyakuOmikujiButton(discord.ui.Button):
 
 def make_panel_embed():
     embed = discord.Embed(
-        title="🌀 逆おみくじパネル",
-        description=(
-            "今日本家おみくじで引いた運勢を押してや！\n\n"
-            "　[大吉] [吉]\n"
-            "　[中吉] [小吉] [末吉]\n"
-            "　[凶] [大凶]\n"
-            "　[鯖の女神降臨] [救いようがない日]\n"
-            "\n"
-            "※鯖の女神降臨/救いようがない日は本当に引いた人 or 管理者のみ押せます"
-        ),
+        title="<:506:1314101561441517618> 逆おみくじ",
+        description="本家おみくじBotで運勢を引いてから押してね！",
         color=discord.Color.purple()
     )
-    embed.set_footer(text="本家おみくじBotで運勢を引いてから押してね！")
+    embed.set_footer(text="今日の運勢を逆おみくじで占おう！")
     return embed
 
-# ────────── コマンド（/gyaku）───────────
 @tree.command(name="gyaku", description="逆おみくじパネルを出す（管理者専用）")
 async def gyaku_command(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -192,12 +179,11 @@ async def gyaku_command(interaction: discord.Interaction):
 
     await interaction.response.send_message("逆おみくじパネルを設置したで！", ephemeral=True)
 
-# ────────── SETUP/起動処理 ──────────
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} | ID: {bot.user.id}")
     try:
-        await tree.sync()  # グローバル同期のみ
+        await tree.sync()
         print("グローバルコマンド同期完了")
     except Exception as e:
         print(f"[ERROR] コマンド同期失敗: {e}")
