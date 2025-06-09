@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-逆おみくじBot（/gyaku コマンド, 4行ボタン横並び, 1日1回制限, 管理者限定/やり直しコマンド, ボタン配色・MCP・GPT・DB対応、200トークン以内指示）
+逆おみくじBot（/gyaku コマンド, 4行ボタン横並び, 1日1回制限, 管理者限定/やり直しコマンド, ボタン配色・MCP・GPT・DB対応、200トークン以内指示、2回目以降はdeferで完全無通知）
 """
 
 import os
@@ -68,7 +68,7 @@ async def generate_gpt_text(user_id: int, user_name: str, result: str) -> str:
                 {"role": "system", "content": "あなたは胡散臭い関西弁の占い師です。必ず関西弁で、神秘的に話してください。"},
                 {"role": "user",   "content": build_gpt_prompt(result, user_name)}
             ],
-            max_tokens=200,     # ←ここを200に
+            max_tokens=200,
             temperature=1.0,
         )
         return rsp.choices[0].message.content.strip()
@@ -122,7 +122,8 @@ class GyakuOmikujiButton(discord.ui.Button):
                 user_id, today
             )
         if already:
-            return  # 2回目以降は完全無反応
+            await interaction.response.defer(ephemeral=True)
+            return  # 2回目以降は完全無反応＆エラーバナーも出ない
 
         result = await get_omikuji_result(user_id, today)
         is_admin = user_id in ADMIN_IDS
@@ -166,10 +167,10 @@ class GyakuOmikujiButton(discord.ui.Button):
 def make_panel_embed():
     embed = discord.Embed(
         title="<:506:1314101561441517618> 逆おみくじパネル",
-        description="本家おみくじBotで運勢を引いてから押してね！",
+        description="今日の運勢を逆おみくじで占おう！",
         color=discord.Color.purple()
     )
-    embed.set_footer(text="今日の運勢を逆おみくじで占おう！")
+    embed.set_footer(text="本家おみくじBotで運勢を引いてから押してね！｜1人1日1回まで")
     return embed
 
 @tree.command(name="gyaku", description="逆おみくじパネルを出す（管理者専用）")
