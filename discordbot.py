@@ -126,15 +126,15 @@ class GyakuOmikujiButton(discord.ui.Button):
             return  # 2回目以降は完全無反応＆エラーバナーも出ない
 
         result = await get_omikuji_result(user_id, today)
-        is_admin = user_id in ADMIN_IDS
+        # ここから「管理者特権（is_admin）」を削除し、全ユーザーで通常判定
         if self.label_val in ("鯖の女神降臨", "救いようがない日"):
-            if not (is_admin or (result == self.label_val)):
+            if result != self.label_val:
                 await interaction.response.send_message(
                     "今日はまだその運勢は引いてへんで！まず本家おみくじで当ててから押してや。",
                     ephemeral=True)
                 return
         else:
-            if not (is_admin or (result == self.label_val)):
+            if result != self.label_val:
                 await interaction.response.send_message(
                     f"今日は「{self.label_val}」は引いてへんみたいやで！まずおみくじで引いてきてな。",
                     ephemeral=True)
